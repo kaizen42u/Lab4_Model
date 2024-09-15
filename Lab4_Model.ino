@@ -10,6 +10,10 @@
 #include "LSM6DSOXFIFOWrapper.h"
 #include "model.h"
 
+#define UART_CLOCK_RATE 921600 // Does not matter here since RP2040 is using USB Serial Port. (Virtual UART)
+#define IIC_BUS_SPEED 400e3    // I2C bus speed in Hz. Options are: 100 kHz, 400 kHz, and 1.0 Mhz.
+#define PRINT_BUFFER_SIZE 128  // Increase this number if you see the output gets truncated
+
 const int numSamples = 120;
 static int samplesRead = 0;
 
@@ -22,18 +26,14 @@ tflite::MicroErrorReporter tflErrorReporter;
 tflite::AllOpsResolver tflOpsResolver;
 
 const tflite::Model *tflModel = nullptr;
-static tflite::MicroInterpreter *tflInterpreter = nullptr;
-static TfLiteTensor *tflInputTensor = nullptr;
-static TfLiteTensor *tflOutputTensor = nullptr;
+tflite::MicroInterpreter *tflInterpreter = nullptr;
+TfLiteTensor *tflInputTensor = nullptr;
+TfLiteTensor *tflOutputTensor = nullptr;
 
 // Create a static memory buffer for TFLM, the size may need to
 // be adjusted based on the model you are using
-constexpr int tensorArenaSize = 8 * 2048;
-static uint8_t tensorArena[tensorArenaSize];
-
-#define UART_CLOCK_RATE 921600 // Does not matter here since RP2040 is using USB Serial Port. (Virtual UART)
-#define IIC_BUS_SPEED 400e3    // I2C bus speed in Hz. Options are: 100 kHz, 400 kHz, and 1.0 Mhz.
-#define PRINT_BUFFER_SIZE 128  // Increase this number if you see the output gets truncated
+constexpr int tensorArenaSize = 2 * 1024;
+uint8_t tensorArena[tensorArenaSize];
 
 static LSM6DSOXFIFO IMU = LSM6DSOXFIFO(Wire, LSM6DSOX_I2C_ADD_L); // IMU on the I2C bus
 
@@ -101,15 +101,16 @@ void setup()
             ; // Halt execution
     }
 
-    checkpoint("After IMU");
-
-    IMU.registerLoggingCallback(IMULoggingCB);
-    IMU.registerDataReadyCallback(IMUDataReadyCB);
-
-    checkpoint("After IMU reg. callback");
+    checkpoint("After IMU initialization");
 
     // Get the TFL representation of the model byte array
     tflModel = tflite::GetModel(model_data);
+    if (tflModel == nullptr)
+    {
+        log("Failed to load model\n");
+        while (1)
+            ;
+    }
     log("tflModel = %p\n", (void *)tflModel);
 
     checkpoint("After TFLM get model");
@@ -142,6 +143,11 @@ void setup()
 
     checkpoint("After loading tflInputTensor / tflOutputTensor");
 
+    IMU.registerLoggingCallback(IMULoggingCB);
+    IMU.registerDataReadyCallback(IMUDataReadyCB);
+
+    checkpoint("After IMU reg. callback");
+
     log("Starting...\n");
 }
 
@@ -154,7 +160,7 @@ void loop()
     {
         samplesRead = 0;
 
-        // Run inferencing
+        // Run inference
         TfLiteStatus invokeStatus = tflInterpreter->Invoke();
         if (invokeStatus != kTfLiteOk)
         {
