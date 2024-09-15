@@ -6,6 +6,7 @@
 #include <tensorflow/lite/micro/micro_interpreter.h>
 #include <tensorflow/lite/schema/schema_generated.h>
 
+#include "BuiltinColourLED.h"
 #include "LSM6DSOXFIFOWrapper.h"
 #include "model.h" // Include the model header file generated from the TensorFlow Lite model
 
@@ -13,9 +14,9 @@
 #define IIC_BUS_SPEED 400e3    // I2C bus speed in Hz. Options are: 100 kHz, 400 kHz, and 1.0 Mhz.
 #define PRINT_BUFFER_SIZE 128  // Increase this number if you see the output gets truncated
 
-const size_t numFeatures = 6;
-const size_t numSamples = 120;
-static size_t samplesRead = 0;
+const size_t numFeatures = 6;  // There are 6 features for each sample. (aX, aY, aZ, gX, gY, and gZ)
+const size_t numSamples = 120; // Total number of samples
+static size_t samplesRead = 0; // How many samples has been read since last inference
 
 // Tensor Arena size
 constexpr size_t tensorArenaSize = 4 * model_parameters;
@@ -28,7 +29,7 @@ uint8_t tensorArena[tensorArenaSize];
 // TensorFlow Lite setup
 const tflite::Model *tflModel = nullptr;
 
-tflite::MicroErrorReporter microErrorReporter;
+tflite::MicroErrorReporter microErrorReporter; // Not used
 // Pull in all the TFLM ops, you can remove this line and
 // only pull in the TFLM ops you need, if would like to reduce
 // the compiled size of the sketch.
@@ -38,7 +39,9 @@ TfLiteTensor *tflInputTensor = nullptr;
 TfLiteTensor *tflOutputTensor = nullptr;
 
 static LSM6DSOXFIFO IMU = LSM6DSOXFIFO(Wire, LSM6DSOX_I2C_ADD_L); // IMU on the I2C bus
+static BuiltinColourLED ColourLED;                                // Arduino Nano RP2040 RGB LED
 
+// Write formatted log message to Serial
 static int log(const char *format, ...);
 
 static int log(const char *format, ...)
@@ -53,6 +56,7 @@ static int log(const char *format, ...)
     return ret_val;
 }
 
+// Rotate an array to the left by `amount`.
 void leftRotate(float *array, int arraySize, int amount);
 
 void leftRotate(float *array, int arraySize, int amount)
@@ -81,9 +85,9 @@ static int IMULoggingCB(const char *str)
 
 static void IMUDataReadyCB([[maybe_unused]] LSM6DSOXFIFO::imu_data_t *data)
 {
-    // IMU.print(data);
+    // IMU.print(data); //! TODO: Somehow uncommenting this line will cause the MCU to crash.
 
-    // Populate input
+    // Populate input, divided by 1000 since the training data is also divided by 1000
     uint32_t index = samplesRead * numFeatures;
     tflInputTensor->data.f[index++] = data->acceleration_data.X / 1000.0f;
     tflInputTensor->data.f[index++] = data->acceleration_data.Y / 1000.0f;
@@ -96,11 +100,26 @@ static void IMUDataReadyCB([[maybe_unused]] LSM6DSOXFIFO::imu_data_t *data)
 
 void setup()
 {
+    ColourLED.enable();
+    ColourLED.setRGB(0, 0, 0);
+
     Serial.begin(UART_CLOCK_RATE);
 
-    // Comment out this line to skip waiting for serial:
+    // Comment out this section to skip waiting for serial:
     while (!Serial)
-        delay(10);
+    {
+        static uint32_t last_millis = millis();
+        const static uint16_t delta = 600;
+        static bool state = true;
+        if (millis() - last_millis >= delta)
+        {
+            ColourLED.setRGB(0, state ? 100 : 0, 0);
+            state = !state;
+            last_millis += delta;
+        }
+    }
+
+    ColourLED.setRGB(0, 0, 100);
 
     // Get the TFL representation of the model byte array
     tflModel = tflite::GetModel(model_data);
@@ -108,7 +127,7 @@ void setup()
     {
         log("Failed to load model\n");
         while (1)
-            ;
+            ; // Halt execution
     }
     log("tflModel = %p\n", (void *)tflModel);
 
@@ -130,6 +149,7 @@ void setup()
     tflInputTensor = tflInterpreter->input(0);
     tflOutputTensor = tflInterpreter->output(0);
 
+    // Initialize input tensors to NAN.
     for (size_t i = 0; i < (numSamples * numFeatures); i++)
         tflInputTensor->data.f[i] = NAN;
 
@@ -148,11 +168,17 @@ void setup()
         while (1)
             ; // Halt execution
     }
+
+    ColourLED.setRGB(100, 100, 100);
+    log("Starting...\n");
 }
 
 void loop()
 {
+    // Read IMU data from FIFO
     IMU.update();
+
+    // After here the `samplesRead` will contain the number of NEW samples available
 
     // Arrange buffer so newer data are located to the right-most side
     leftRotate(tflInputTensor->data.f, numSamples * numFeatures, samplesRead * numFeatures);
@@ -168,9 +194,37 @@ void loop()
         return;
     }
 
-    // Loop through the output tensor values from the model
+    // Get the highest score of gesture index
+    size_t max_index = 0;
+    float max_value = tflOutputTensor->data.f[0];
+    for (size_t i = 0; i < gesture_len; i++)
+        if (tflOutputTensor->data.f[i] > max_value)
+        {
+            max_value = tflOutputTensor->data.f[i];
+            max_index = i;
+        }
+
+    // Log the inference result
     log("[Result]");
-    for (uint32_t i = 0; i < gesture_len; i++)
+    for (size_t i = 0; i < gesture_len; i++)
         log(" [%6s: %4.2f]", gestures[i], tflOutputTensor->data.f[i]);
-    log("\n");
+    log(" | [%6s: %4.2f]\n", gestures[max_index], max_value);
+
+    // Set LED colour based on the inference result
+    switch (max_index)
+    {
+    case 0: // Refer to `gestures[]` in `model.h` for the full name definition
+        ColourLED.setRGB(0, 0, 0);
+        break;
+    case 1:
+        ColourLED.setRGB(0, 255, 0);
+        break;
+    case 2:
+        ColourLED.setRGB(0, 0, 255);
+        break;
+    default: // Unhandled case
+        ColourLED.setRGB(0, 0, 0);
+        log("Gesture [%s] unhandled", gestures[max_index]);
+        break;
+    }
 }

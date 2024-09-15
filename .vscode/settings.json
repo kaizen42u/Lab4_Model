@@ -57,7 +57,8 @@
         "istream": "cpp",
         "mutex": "cpp",
         "sstream": "cpp",
-        "thread": "cpp"
+        "thread": "cpp",
+        "mstd_iterator": "cpp"
     },
     "C_Cpp.intelliSenseEngineFallback": "enabled",
     "cSpell.words": [
