@@ -1,4 +1,3 @@
-
 #include <stdarg.h>
 
 #include <TensorFlowLite.h>
@@ -8,32 +7,35 @@
 #include <tensorflow/lite/schema/schema_generated.h>
 
 #include "LSM6DSOXFIFOWrapper.h"
-#include "model.h"
+#include "model.h" // Include the model header file generated from the TensorFlow Lite model
 
 #define UART_CLOCK_RATE 921600 // Does not matter here since RP2040 is using USB Serial Port. (Virtual UART)
 #define IIC_BUS_SPEED 400e3    // I2C bus speed in Hz. Options are: 100 kHz, 400 kHz, and 1.0 Mhz.
 #define PRINT_BUFFER_SIZE 128  // Increase this number if you see the output gets truncated
 
-const int numSamples = 120;
-static int samplesRead = 0;
+const size_t numFeatures = 6;
+const size_t numSamples = 120;
+static size_t samplesRead = 0;
+
+// Tensor Arena size
+constexpr size_t tensorArenaSize = 4 * model_parameters;
+// Create a static memory buffer for TFLM, the size may need to
+// be adjusted based on the model you are using
+uint8_t tensorArena[tensorArenaSize];
 
 // Global variables used for TensorFlow Lite (Micro)
-tflite::MicroErrorReporter tflErrorReporter;
 
+// TensorFlow Lite setup
+const tflite::Model *tflModel = nullptr;
+
+tflite::MicroErrorReporter microErrorReporter;
 // Pull in all the TFLM ops, you can remove this line and
 // only pull in the TFLM ops you need, if would like to reduce
 // the compiled size of the sketch.
 tflite::AllOpsResolver tflOpsResolver;
-
-const tflite::Model *tflModel = nullptr;
 tflite::MicroInterpreter *tflInterpreter = nullptr;
 TfLiteTensor *tflInputTensor = nullptr;
 TfLiteTensor *tflOutputTensor = nullptr;
-
-// Create a static memory buffer for TFLM, the size may need to
-// be adjusted based on the model you are using
-constexpr int tensorArenaSize = 2 * 1024;
-uint8_t tensorArena[tensorArenaSize];
 
 static LSM6DSOXFIFO IMU = LSM6DSOXFIFO(Wire, LSM6DSOX_I2C_ADD_L); // IMU on the I2C bus
 
@@ -51,12 +53,25 @@ static int log(const char *format, ...)
     return ret_val;
 }
 
-void checkpoint(const char *str);
+void leftRotate(float *array, int arraySize, int amount);
 
-void checkpoint(const char *str)
+void leftRotate(float *array, int arraySize, int amount)
 {
-    static int num = 0;
-    log("Checkpoint %3d: %s\n", num++, str);
+
+    if (arraySize == 0)
+        return;
+
+    // Get the effective number of rotations:
+    amount = amount % arraySize;
+
+    // step 1:
+    std::reverse(array, array + amount);
+
+    // step 2:
+    std::reverse(array + amount, array + arraySize);
+
+    // step 3:
+    std::reverse(array, array + arraySize);
 }
 
 static int IMULoggingCB(const char *str)
@@ -66,16 +81,16 @@ static int IMULoggingCB(const char *str)
 
 static void IMUDataReadyCB([[maybe_unused]] LSM6DSOXFIFO::imu_data_t *data)
 {
-    IMU.print();
+    // IMU.print();
 
     // Populate input
-    const uint8_t numFeatures = 6;
-    tflInputTensor->data.f[samplesRead * numFeatures + 0] = data->acceleration_data.X;
-    tflInputTensor->data.f[samplesRead * numFeatures + 1] = data->acceleration_data.Y;
-    tflInputTensor->data.f[samplesRead * numFeatures + 2] = data->acceleration_data.Z;
-    tflInputTensor->data.f[samplesRead * numFeatures + 3] = data->rotation_data.X;
-    tflInputTensor->data.f[samplesRead * numFeatures + 4] = data->rotation_data.Y;
-    tflInputTensor->data.f[samplesRead * numFeatures + 5] = data->rotation_data.Z;
+    uint32_t index = samplesRead * numFeatures;
+    tflInputTensor->data.f[index++] = data->acceleration_data.X;
+    tflInputTensor->data.f[index++] = data->acceleration_data.Y;
+    tflInputTensor->data.f[index++] = data->acceleration_data.Z;
+    tflInputTensor->data.f[index++] = data->rotation_data.X;
+    tflInputTensor->data.f[index++] = data->rotation_data.Y;
+    tflInputTensor->data.f[index++] = data->rotation_data.Z;
     samplesRead++;
 }
 
@@ -87,22 +102,6 @@ void setup()
     while (!Serial)
         delay(10);
 
-    checkpoint("After Serial");
-
-    // I2C, fast mode
-    Wire.begin();
-    Wire.setClock(IIC_BUS_SPEED);
-
-    // Initialize sensors
-    if (!IMU.initialize())
-    {
-        log("Failed to initialize IMU\n");
-        while (1)
-            ; // Halt execution
-    }
-
-    checkpoint("After IMU initialization");
-
     // Get the TFL representation of the model byte array
     tflModel = tflite::GetModel(model_data);
     if (tflModel == nullptr)
@@ -113,11 +112,7 @@ void setup()
     }
     log("tflModel = %p\n", (void *)tflModel);
 
-    checkpoint("After TFLM get model");
-
     auto modelVersion = tflModel->version();
-    log("Model version %lu\n", modelVersion);
-
     if (modelVersion != TFLITE_SCHEMA_VERSION)
     {
         log("Model schema mismatch!\n");
@@ -125,54 +120,57 @@ void setup()
             ;
     }
 
-    checkpoint("After referencing the model");
-
     // Create an interpreter to run the model
     tflInterpreter = new tflite::MicroInterpreter(tflModel, tflOpsResolver, tensorArena, tensorArenaSize, nullptr, nullptr);
 
-    checkpoint("After Created tflite::MicroInterpreter");
-
     // Allocate memory for the model's input and output tensors
     tflInterpreter->AllocateTensors();
-
-    checkpoint("After AllocateTensors ");
 
     // Get pointers for the model's input and output tensors
     tflInputTensor = tflInterpreter->input(0);
     tflOutputTensor = tflInterpreter->output(0);
 
-    checkpoint("After loading tflInputTensor / tflOutputTensor");
+    for (size_t i = 0; i < (numSamples * numFeatures); i++)
+        tflInputTensor->data.f[i] = NAN;
 
+    log("Model initialization successful.\n");
+
+    // I2C, fast mode
+    Wire.begin();
+    Wire.setClock(IIC_BUS_SPEED);
+
+    // Initialize sensors
     IMU.registerLoggingCallback(IMULoggingCB);
     IMU.registerDataReadyCallback(IMUDataReadyCB);
-
-    checkpoint("After IMU reg. callback");
-
-    log("Starting...\n");
+    if (!IMU.initialize())
+    {
+        log("Failed to initialize IMU\n");
+        while (1)
+            ; // Halt execution
+    }
 }
 
 void loop()
 {
-    // put your main code here, to run repeatedly:
     IMU.update();
 
-    if (samplesRead == numSamples)
+    // Arrange buffer so newer data are located the right-most side
+    leftRotate(tflInputTensor->data.f, numSamples * numFeatures, samplesRead * numFeatures);
+    samplesRead = 0;
+
+    // Run inference
+    TfLiteStatus invokeStatus = tflInterpreter->Invoke();
+    if (invokeStatus != kTfLiteOk)
     {
-        samplesRead = 0;
-
-        // Run inference
-        TfLiteStatus invokeStatus = tflInterpreter->Invoke();
-        if (invokeStatus != kTfLiteOk)
-        {
-            log("Invoke failed!");
-            while (1)
-                ;
-            return;
-        }
-
-        // Loop through the output tensor values from the model
-        log("Invoke OK!");
-        for (uint32_t i = 0; i < gesture_len; i++)
-            log("%s: %4.2f\n", gestures[i], tflOutputTensor->data.f[i]);
+        log("Invoke failed!");
+        while (1)
+            ;
+        return;
     }
+
+    // Loop through the output tensor values from the model
+    log("[Result]");
+    for (uint32_t i = 0; i < gesture_len; i++)
+        log(" [%6s: %4.2f]", gestures[i], tflOutputTensor->data.f[i]);
+    log("\n");
 }
