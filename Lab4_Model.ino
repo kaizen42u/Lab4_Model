@@ -22,22 +22,15 @@ tflite::MicroErrorReporter tflErrorReporter;
 tflite::AllOpsResolver tflOpsResolver;
 
 const tflite::Model *tflModel = nullptr;
-tflite::MicroInterpreter *tflInterpreter = nullptr;
-TfLiteTensor *tflInputTensor = nullptr;
-TfLiteTensor *tflOutputTensor = nullptr;
+static tflite::MicroInterpreter *tflInterpreter = nullptr;
+static TfLiteTensor *tflInputTensor = nullptr;
+static TfLiteTensor *tflOutputTensor = nullptr;
 
 // Create a static memory buffer for TFLM, the size may need to
 // be adjusted based on the model you are using
-constexpr int tensorArenaSize = 8 * 1024;
-uint8_t tensorArena[tensorArenaSize];
+constexpr int tensorArenaSize = 8 * 2048;
+static uint8_t tensorArena[tensorArenaSize];
 
-// array to map gesture index to a name
-const char *GESTURES[] = {
-    "idle",
-    "left",
-    "right"};
-
-#define NUM_GESTURES (sizeof(GESTURES) / sizeof(GESTURES[0]))
 #define UART_CLOCK_RATE 921600 // Does not matter here since RP2040 is using USB Serial Port. (Virtual UART)
 #define IIC_BUS_SPEED 400e3    // I2C bus speed in Hz. Options are: 100 kHz, 400 kHz, and 1.0 Mhz.
 #define PRINT_BUFFER_SIZE 128  // Increase this number if you see the output gets truncated
@@ -58,6 +51,14 @@ static int log(const char *format, ...)
     return ret_val;
 }
 
+void checkpoint(const char *str);
+
+void checkpoint(const char *str)
+{
+    static int num = 0;
+    log("Checkpoint %3d: %s\n", num++, str);
+}
+
 static int IMULoggingCB(const char *str)
 {
     return log("%s", str);
@@ -67,13 +68,14 @@ static void IMUDataReadyCB([[maybe_unused]] LSM6DSOXFIFO::imu_data_t *data)
 {
     IMU.print();
 
-    tflInputTensor->data.f[samplesRead * 6 + 0] = data->acceleration_data.X;
-    tflInputTensor->data.f[samplesRead * 6 + 1] = data->acceleration_data.Y;
-    tflInputTensor->data.f[samplesRead * 6 + 2] = data->acceleration_data.Z;
-    tflInputTensor->data.f[samplesRead * 6 + 3] = data->rotation_data.X;
-    tflInputTensor->data.f[samplesRead * 6 + 4] = data->rotation_data.Y;
-    tflInputTensor->data.f[samplesRead * 6 + 5] = data->rotation_data.Z;
-
+    // Populate input
+    const uint8_t numFeatures = 6;
+    tflInputTensor->data.f[samplesRead * numFeatures + 0] = data->acceleration_data.X;
+    tflInputTensor->data.f[samplesRead * numFeatures + 1] = data->acceleration_data.Y;
+    tflInputTensor->data.f[samplesRead * numFeatures + 2] = data->acceleration_data.Z;
+    tflInputTensor->data.f[samplesRead * numFeatures + 3] = data->rotation_data.X;
+    tflInputTensor->data.f[samplesRead * numFeatures + 4] = data->rotation_data.Y;
+    tflInputTensor->data.f[samplesRead * numFeatures + 5] = data->rotation_data.Z;
     samplesRead++;
 }
 
@@ -84,6 +86,8 @@ void setup()
     // Comment out this line to skip waiting for serial:
     while (!Serial)
         delay(10);
+
+    checkpoint("After Serial");
 
     // I2C, fast mode
     Wire.begin();
@@ -97,27 +101,46 @@ void setup()
             ; // Halt execution
     }
 
+    checkpoint("After IMU");
+
     IMU.registerLoggingCallback(IMULoggingCB);
     IMU.registerDataReadyCallback(IMUDataReadyCB);
 
+    checkpoint("After IMU reg. callback");
+
     // Get the TFL representation of the model byte array
-    tflModel = tflite::GetModel(model);
-    if (tflModel->version() != TFLITE_SCHEMA_VERSION)
+    tflModel = tflite::GetModel(model_data);
+    log("tflModel = %p\n", (void *)tflModel);
+
+    checkpoint("After TFLM get model");
+
+    auto modelVersion = tflModel->version();
+    log("Model version %lu\n", modelVersion);
+
+    if (modelVersion != TFLITE_SCHEMA_VERSION)
     {
-        Serial.println("Model schema mismatch!");
+        log("Model schema mismatch!\n");
         while (1)
             ;
     }
 
+    checkpoint("After referencing the model");
+
     // Create an interpreter to run the model
     tflInterpreter = new tflite::MicroInterpreter(tflModel, tflOpsResolver, tensorArena, tensorArenaSize, nullptr, nullptr);
+
+    checkpoint("After Created tflite::MicroInterpreter");
 
     // Allocate memory for the model's input and output tensors
     tflInterpreter->AllocateTensors();
 
+    checkpoint("After AllocateTensors ");
+
     // Get pointers for the model's input and output tensors
     tflInputTensor = tflInterpreter->input(0);
     tflOutputTensor = tflInterpreter->output(0);
+
+    checkpoint("After loading tflInputTensor / tflOutputTensor");
 
     log("Starting...\n");
 }
@@ -126,6 +149,7 @@ void loop()
 {
     // put your main code here, to run repeatedly:
     IMU.update();
+
     if (samplesRead == numSamples)
     {
         samplesRead = 0;
@@ -134,19 +158,15 @@ void loop()
         TfLiteStatus invokeStatus = tflInterpreter->Invoke();
         if (invokeStatus != kTfLiteOk)
         {
-            Serial.println("Invoke failed!");
+            log("Invoke failed!");
             while (1)
                 ;
             return;
         }
 
         // Loop through the output tensor values from the model
-        for (uint32_t i = 0; i < NUM_GESTURES; i++)
-        {
-            Serial.print(GESTURES[i]);
-            Serial.print(": ");
-            Serial.println(tflOutputTensor->data.f[i], 6);
-        }
-        Serial.println();
+        log("Invoke OK!");
+        for (uint32_t i = 0; i < gesture_len; i++)
+            log("%s: %4.2f\n", gestures[i], tflOutputTensor->data.f[i]);
     }
 }
