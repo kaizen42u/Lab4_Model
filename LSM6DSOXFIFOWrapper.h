@@ -48,7 +48,7 @@ public:
     void update(void);
 
     // Print sensor data
-    void print(void);
+    void print(imu_data_t *data) const;
 
     // Register logging callback
     void registerLoggingCallback(log_callback_t callback);
@@ -69,7 +69,7 @@ private:
     int32_t *vector3intSerialize(vector3int_t *vector) const;
 
     // Log messages
-    int log(const char *format, ...) const;
+    int sendLog(const char *format, ...) const;
 
     // Check if data is ready
     bool isDataReady(void);

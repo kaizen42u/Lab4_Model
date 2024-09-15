@@ -13,11 +13,11 @@ int LSM6DSOXFIFO::initialize(void)
     lsm6dsoxSensor.begin();
     if (lsm6dsoxSensor.Enable_G() == LSM6DSOX_OK && lsm6dsoxSensor.Enable_X() == LSM6DSOX_OK)
     {
-        LSM6DSOXFIFO::log("Success in enabling accelerometer and gyroscope\n");
+        this->sendLog("Success in enabling accelerometer and gyroscope\n");
     }
     else
     {
-        LSM6DSOXFIFO::log("Error in enabling accelerometer and gyroscope\n");
+        this->sendLog("Error in enabling accelerometer and gyroscope\n");
         return false;
     }
 
@@ -26,12 +26,12 @@ int LSM6DSOXFIFO::initialize(void)
     lsm6dsoxSensor.ReadID(&device_id);
     if (device_id != LSM6DSOX_ID)
     {
-        LSM6DSOXFIFO::log("Wrong ID for LSM6DSOX sensor. Check device is plugged\n");
+        this->sendLog("Wrong ID for LSM6DSOX sensor. Check device is plugged\n");
         return false;
     }
     else
     {
-        LSM6DSOXFIFO::log("Success checking ID for LSM6DSOX sensor\n");
+        this->sendLog("Success checking ID for LSM6DSOX sensor\n");
     }
 
     // Set accelerometer scale. Available values are: 2, 4, 8, 16 G
@@ -69,7 +69,7 @@ void LSM6DSOXFIFO::update(void)
     // Check if FIFO threshold level was reached.
     uint8_t fifo_watermark_threshold_reached = 0; // FIFO watermark status
     lsm6dsoxSensor.Get_FIFO_Watermark_Status(&fifo_watermark_threshold_reached);
-    
+
     while (fifo_watermark_threshold_reached)
     {
         // Fetch data from FIFO
@@ -84,8 +84,8 @@ void LSM6DSOXFIFO::update(void)
 
     if (fifo_full)
     {
-        LSM6DSOXFIFO::log("-- FIFO is full! Consider reducing Watermark Level or Buffer Data Rate.\n");
-        LSM6DSOXFIFO::log("Flushing data from FIFO.\n");
+        this->sendLog("-- FIFO is full! Consider reducing Watermark Level or Buffer Data Rate.\n");
+        this->sendLog("Flushing data from FIFO.\n");
         lsm6dsoxSensor.Set_FIFO_Mode(LSM6DSOX_BYPASS_MODE); // Flush FIFO data
         lsm6dsoxSensor.Set_FIFO_Mode(LSM6DSOX_STREAM_MODE); // Continue batching
     }
@@ -102,7 +102,7 @@ int LSM6DSOXFIFO::readFIFObuffer(void)
     [[likely]] case IMU_FIFO_TAG_GYROSCOPE:
         // Get gyroscope data
         if (data.rotation_data_ready)
-            LSM6DSOXFIFO::log("Overwriting rotation data for a more recent ones.\n");
+            this->sendLog("Overwriting rotation data for a more recent ones.\n");
         lsm6dsoxSensor.Get_FIFO_G_Axes(vector3intSerialize(&data.rotation_data));
         data.rotation_data_ready = true;
         ret_val = IMU_FIFO_TAG_GYROSCOPE;
@@ -110,14 +110,14 @@ int LSM6DSOXFIFO::readFIFObuffer(void)
     [[likely]] case IMU_FIFO_TAG_ACCELEROMETER:
         // Get accelerometer data
         if (data.acceleration_data_ready)
-            LSM6DSOXFIFO::log("Overwriting acceleration data for a more recent ones.\n");
+            this->sendLog("Overwriting acceleration data for a more recent ones.\n");
         lsm6dsoxSensor.Get_FIFO_X_Axes(vector3intSerialize(&data.acceleration_data));
         data.acceleration_data_ready = true;
         ret_val = IMU_FIFO_TAG_ACCELEROMETER;
         break;
     [[unlikely]] default:
         // Ignore everything else.
-        LSM6DSOXFIFO::log("Discarding FIFO data TAG ID %02d.\n", fifo_tag);
+        this->sendLog("Discarding FIFO data TAG ID %02d.\n", fifo_tag);
         ret_val = 0;
         break;
     }
@@ -131,27 +131,31 @@ int LSM6DSOXFIFO::readFIFObuffer(void)
     return ret_val;
 }
 
-void LSM6DSOXFIFO::print(void)
+void LSM6DSOXFIFO::print(imu_data_t *data) const
 {
-    // static uint32_t last_sample_millis = millis();
-    // uint32_t delta_millis = millis() - last_sample_millis;
+    if (data == NULL)
+        return;
 
-    LSM6DSOXFIFO::log("[IMU], ");
-    if (data.acceleration_data_ready)
-        LSM6DSOXFIFO::log("Acc: [%6.3f, %6.3f, %6.3f] G, ", data.acceleration_data.X / 1000.0, data.acceleration_data.Y / 1000.0, data.acceleration_data.Z / 1000.0); // Acceleration
-    if (data.rotation_data_ready)
-        LSM6DSOXFIFO::log("Gyro: [%8.2f, %8.2f, %8.2f] DPS", data.rotation_data.X / 1000.0, data.rotation_data.Y / 1000.0, data.rotation_data.Z / 1000.0); // Angular Velocity
-    LSM6DSOXFIFO::log("%s", "\n");
+    static uint32_t last_sample_millis = millis();
+    uint32_t delta_millis = millis() - last_sample_millis;
 
-    // last_sample_millis = millis();
+    this->sendLog("[IMU] [%4lu ms], ", delta_millis);
+    if (data->acceleration_data_ready)
+        this->sendLog("Acc: [%6.3f, %6.3f, %6.3f] G, ", data->acceleration_data.X / 1000.0f, data->acceleration_data.Y / 1000.0f, data->acceleration_data.Z / 1000.0f); // Acceleration
+    if (data->rotation_data_ready)
+        this->sendLog("Gyro: [%8.2f, %8.2f, %8.2f] DPS", data->rotation_data.X / 1000.0f, data->rotation_data.Y / 1000.0f, data->rotation_data.Z / 1000.0f); // Angular Velocity
+    this->sendLog("%s", "\n");
+
+    last_sample_millis = millis();
+    return;
 }
 
-void LSM6DSOXFIFO::registerLoggingCallback(log_callback_t callback)
+void LSM6DSOXFIFO::registerLoggingCallback(const log_callback_t callback)
 {
     logCallback = callback;
 }
 
-void LSM6DSOXFIFO::registerDataReadyCallback(data_ready_callback_t callback)
+void LSM6DSOXFIFO::registerDataReadyCallback(const data_ready_callback_t callback)
 {
     dataReadyCallback = callback;
 }
@@ -161,7 +165,7 @@ int32_t *LSM6DSOXFIFO::vector3intSerialize(vector3int_t *vector) const
     return reinterpret_cast<int32_t *>(vector);
 }
 
-int LSM6DSOXFIFO::LSM6DSOXFIFO::log(const char *format, ...) const
+int LSM6DSOXFIFO::sendLog(const char *format, ...) const
 {
     if (!logCallback)
         return 0;

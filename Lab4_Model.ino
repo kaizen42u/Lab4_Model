@@ -81,16 +81,16 @@ static int IMULoggingCB(const char *str)
 
 static void IMUDataReadyCB([[maybe_unused]] LSM6DSOXFIFO::imu_data_t *data)
 {
-    // IMU.print();
+    // IMU.print(data);
 
     // Populate input
     uint32_t index = samplesRead * numFeatures;
-    tflInputTensor->data.f[index++] = data->acceleration_data.X;
-    tflInputTensor->data.f[index++] = data->acceleration_data.Y;
-    tflInputTensor->data.f[index++] = data->acceleration_data.Z;
-    tflInputTensor->data.f[index++] = data->rotation_data.X;
-    tflInputTensor->data.f[index++] = data->rotation_data.Y;
-    tflInputTensor->data.f[index++] = data->rotation_data.Z;
+    tflInputTensor->data.f[index++] = data->acceleration_data.X / 1000.0f;
+    tflInputTensor->data.f[index++] = data->acceleration_data.Y / 1000.0f;
+    tflInputTensor->data.f[index++] = data->acceleration_data.Z / 1000.0f;
+    tflInputTensor->data.f[index++] = data->rotation_data.X / 1000.0f;
+    tflInputTensor->data.f[index++] = data->rotation_data.Y / 1000.0f;
+    tflInputTensor->data.f[index++] = data->rotation_data.Z / 1000.0f;
     samplesRead++;
 }
 
@@ -154,7 +154,7 @@ void loop()
 {
     IMU.update();
 
-    // Arrange buffer so newer data are located the right-most side
+    // Arrange buffer so newer data are located to the right-most side
     leftRotate(tflInputTensor->data.f, numSamples * numFeatures, samplesRead * numFeatures);
     samplesRead = 0;
 
