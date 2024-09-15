@@ -1,0 +1,7 @@
+{
+    "port": "COM8",
+    "board": "arduino:mbed_nano:nanorp2040connect",
+    "output": "../build",
+    "intelliSenseGen": "global",
+    "sketch": "Lab4_Model.ino"
+}
