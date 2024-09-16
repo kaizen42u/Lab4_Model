@@ -147,7 +147,6 @@ void LSM6DSOXFIFO::print(imu_data_t *data) const
     this->sendLog("%s", "\n");
 
     last_sample_millis = millis();
-    return;
 }
 
 void LSM6DSOXFIFO::registerLoggingCallback(const log_callback_t callback)
