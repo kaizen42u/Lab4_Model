@@ -116,18 +116,18 @@ void setup()
     Serial.begin(UART_CLOCK_RATE);
 
     // Comment out this section to skip waiting for serial:
-    while (!Serial)
-    {
-        static uint32_t last_millis = millis();
-        const static uint16_t delta = 600;
-        static bool state = true;
-        if (millis() - last_millis >= delta)
-        {
-            ColourLED.setRGB(0, state ? 100 : 0, 0);
-            state = !state;
-            last_millis += delta;
-        }
-    }
+    // while (!Serial)
+    // {
+    //     static uint32_t last_millis = millis();
+    //     const static uint16_t delta = 600;
+    //     static bool state = true;
+    //     if (millis() - last_millis >= delta)
+    //     {
+    //         ColourLED.setRGB(0, state ? 100 : 0, 0);
+    //         state = !state;
+    //         last_millis += delta;
+    //     }
+    // }
 
     ColourLED.setRGB(0, 0, 100);
 
