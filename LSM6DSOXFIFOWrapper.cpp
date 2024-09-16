@@ -136,17 +136,12 @@ void LSM6DSOXFIFO::print(imu_data_t *data) const
     if (data == NULL)
         return;
 
-    static uint32_t last_sample_millis = millis();
-    uint32_t delta_millis = millis() - last_sample_millis;
-
-    this->sendLog("[IMU] [%4lu ms], ", delta_millis);
+    this->sendLog("[IMU] [%11ld ms], ", millis());
     if (data->acceleration_data_ready)
         this->sendLog("Acc: [%6.3f, %6.3f, %6.3f] G, ", data->acceleration_data.X / 1000.0f, data->acceleration_data.Y / 1000.0f, data->acceleration_data.Z / 1000.0f); // Acceleration
     if (data->rotation_data_ready)
         this->sendLog("Gyro: [%8.2f, %8.2f, %8.2f] DPS", data->rotation_data.X / 1000.0f, data->rotation_data.Y / 1000.0f, data->rotation_data.Z / 1000.0f); // Angular Velocity
     this->sendLog("%s", "\n");
-
-    last_sample_millis = millis();
 }
 
 void LSM6DSOXFIFO::registerLoggingCallback(const log_callback_t callback)
