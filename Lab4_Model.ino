@@ -232,6 +232,9 @@ void loop()
     case 2:
         ColourLED.setRGB(0, 0, 255);
         break;
+    case 3:
+        ColourLED.setRGB(255, 0, 0);
+        break;
     default: // Unhandled case
         ColourLED.setRGB(0, 0, 0);
         log("Gesture [%s] unhandled", gestures[max_index]);
