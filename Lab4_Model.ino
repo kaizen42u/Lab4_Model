@@ -14,24 +14,24 @@
 #define IIC_BUS_SPEED 400e3    // I2C bus speed in Hz. Options are: 100 kHz, 400 kHz, and 1.0 Mhz.
 #define PRINT_BUFFER_SIZE 128  // Increase this number if you see the output gets truncated
 
-const size_t numFeatures = 6;  // There are 6 features for each sample. (aX, aY, aZ, gX, gY, and gZ)
-const size_t numSamples = 120; // Total number of samples
-static size_t samplesRead = 0; // How many samples has been read since last inference
+const size_t num_features = 6;  // There are 6 features for each sample. (aX, aY, aZ, gX, gY, and gZ)
+const size_t num_samples = 120; // Total number of samples
+static size_t samples_read = 0; // How many samples has been read since last inference
 
 // Tensor Arena size
-constexpr size_t tensorArenaSize = 4 * model_parameters;
+const size_t tensor_arena_size = 4 * model_parameters;
 // Create a static memory buffer for TFLM, the size may need to
 // be adjusted based on the model you are using
-uint8_t tensorArena[tensorArenaSize];
+uint8_t tensor_arena[tensor_arena_size];
 
 // Global variables used for TensorFlow Lite (Micro)
 
 // TensorFlow Lite setup
 const tflite::Model *tflModel = nullptr;
 
-tflite::MicroErrorReporter microErrorReporter; // Not used
+tflite::MicroErrorReporter tflMicroErrorReporter; // Not used
 // Pull in all the TFLM ops, you can remove this line and
-// only pull in the TFLM ops you need, if would like to reduce
+// only pull in the TFLM ops you need, it would like to reduce
 // the compiled size of the sketch.
 tflite::AllOpsResolver tflOpsResolver;
 tflite::MicroInterpreter *tflInterpreter = nullptr;
@@ -57,25 +57,25 @@ static int log(const char *format, ...)
 }
 
 // Rotate an array to the left by `amount`.
-void leftRotate(float *array, int arraySize, int amount);
+void leftRotate(float *array, int array_size, int amount);
 
-void leftRotate(float *array, int arraySize, int amount)
+void leftRotate(float *array, int array_size, int amount)
 {
 
-    if (arraySize == 0)
+    if (array_size == 0)
         return;
 
     // Get the effective number of rotations:
-    amount = amount % arraySize;
+    amount = amount % array_size;
 
     // step 1:
     std::reverse(array, array + amount);
 
     // step 2:
-    std::reverse(array + amount, array + arraySize);
+    std::reverse(array + amount, array + array_size);
 
     // step 3:
-    std::reverse(array, array + arraySize);
+    std::reverse(array, array + array_size);
 }
 
 static int IMULoggingCB(const char *str)
@@ -98,14 +98,14 @@ static void IMUDataReadyCB([[maybe_unused]] LSM6DSOXFIFO::imu_data_t *data)
     last_sample_millis += delta_millis;
 
     // Populate input, divided by 1000 since the training data is also divided by 1000
-    uint32_t index = samplesRead * numFeatures;
+    uint32_t index = samples_read * num_features;
     tflInputTensor->data.f[index++] = data->acceleration_data.X / 1000.0f;
     tflInputTensor->data.f[index++] = data->acceleration_data.Y / 1000.0f;
     tflInputTensor->data.f[index++] = data->acceleration_data.Z / 1000.0f;
     tflInputTensor->data.f[index++] = data->rotation_data.X / 1000.0f;
     tflInputTensor->data.f[index++] = data->rotation_data.Y / 1000.0f;
     tflInputTensor->data.f[index++] = data->rotation_data.Z / 1000.0f;
-    samplesRead++;
+    samples_read++;
 }
 
 void setup()
@@ -141,8 +141,8 @@ void setup()
     }
     log("tflModel = %p\n", (void *)tflModel);
 
-    auto modelVersion = tflModel->version();
-    if (modelVersion != TFLITE_SCHEMA_VERSION)
+    int32_t model_version = tflModel->version();
+    if (model_version != TFLITE_SCHEMA_VERSION)
     {
         log("Model schema mismatch!\n");
         while (1)
@@ -150,7 +150,7 @@ void setup()
     }
 
     // Create an interpreter to run the model
-    tflInterpreter = new tflite::MicroInterpreter(tflModel, tflOpsResolver, tensorArena, tensorArenaSize, nullptr, nullptr);
+    tflInterpreter = new tflite::MicroInterpreter(tflModel, tflOpsResolver, tensor_arena, tensor_arena_size, nullptr, nullptr);
 
     // Allocate memory for the model's input and output tensors
     tflInterpreter->AllocateTensors();
@@ -160,7 +160,7 @@ void setup()
     tflOutputTensor = tflInterpreter->output(0);
 
     // Initialize input tensors to NAN.
-    for (size_t i = 0; i < (numSamples * numFeatures); i++)
+    for (size_t i = 0; i < (num_samples * num_features); i++)
         tflInputTensor->data.f[i] = NAN;
 
     log("Model initialization successful.\n");
@@ -188,11 +188,11 @@ void loop()
     // Read IMU data from FIFO
     IMU.update();
 
-    // After here the `samplesRead` will contain the number of NEW samples available
+    // After here the `samples_read` will contain the number of NEW samples available
 
     // Arrange buffer so newer data are located to the right-most side
-    leftRotate(tflInputTensor->data.f, numSamples * numFeatures, samplesRead * numFeatures);
-    samplesRead = 0;
+    leftRotate(tflInputTensor->data.f, num_samples * num_features, samples_read * num_features);
+    samples_read = 0;
 
     // Run inference
     TfLiteStatus invokeStatus = tflInterpreter->Invoke();
@@ -215,7 +215,7 @@ void loop()
         }
 
     // Log the inference result
-    log("[Result]");
+    log("[Res] [%11d ms] |", millis());
     for (size_t i = 0; i < gesture_len; i++)
         log(" [%6s: %4.2f]", gestures[i], tflOutputTensor->data.f[i]);
     log(" | [%6s: %4.2f]\n", gestures[max_index], max_value);
@@ -235,6 +235,9 @@ void loop()
     case 3:
         ColourLED.setRGB(255, 0, 0);
         break;
+
+        // Add more cases if needed
+
     default: // Unhandled case
         ColourLED.setRGB(0, 0, 0);
         log("Gesture id %d unhandled", max_index);
