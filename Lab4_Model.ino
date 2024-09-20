@@ -237,7 +237,7 @@ void loop()
         break;
     default: // Unhandled case
         ColourLED.setRGB(0, 0, 0);
-        log("Gesture [%s] unhandled", gestures[max_index]);
+        log("Gesture id %d unhandled", max_index);
         break;
     }
 }
