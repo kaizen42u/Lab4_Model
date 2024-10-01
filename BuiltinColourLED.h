@@ -3,7 +3,7 @@
 #include <Arduino.h>
 
 #define LED_PWM_RESOLUTION 255.0f
-#define LED_GAMMA_VALUE 1.8f
+#define LED_GAMMA_VALUE 2.2f
 
 class BuiltinColourLED
 {

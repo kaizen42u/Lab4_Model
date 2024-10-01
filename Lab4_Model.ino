@@ -57,6 +57,7 @@ static int log(const char *format, ...)
 }
 
 // Rotate an array to the left by `amount`.
+// Refer to: https://godbolt.org/z/z8TnsMzjc
 void leftRotate(float *array, int array_size, int amount);
 
 void leftRotate(float *array, int array_size, int amount)
@@ -68,13 +69,13 @@ void leftRotate(float *array, int array_size, int amount)
     // Get the effective number of rotations:
     amount = amount % array_size;
 
-    // step 1:
+    // Step 1: Reverse the first `amount` elements
     std::reverse(array, array + amount);
 
-    // step 2:
+    // Step 2: Reverse the last (`array_size`-`amount`) elements
     std::reverse(array + amount, array + array_size);
 
-    // step 3:
+    // Step 3: Reverse the entire array (The order of steps doesn't matter)
     std::reverse(array, array + array_size);
 }
 

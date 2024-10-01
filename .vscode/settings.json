@@ -64,6 +64,9 @@
     "cSpell.words": [
         "DSOX",
         "DSOXFIFO",
+        "LEDB",
+        "LEDG",
+        "LEDR",
         "PROGMEM",
         "tflite",
         "TFLM"
