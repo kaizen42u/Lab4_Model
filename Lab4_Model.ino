@@ -90,10 +90,8 @@ static void IMUDataReadyCB([[maybe_unused]] LSM6DSOXFIFO::imu_data_t *data)
     const float delta_millis = (1000.0f / IMU_SAMPLING_RATE);
 
     log("[IMU] [%11d ms], ", int(last_sample_millis));
-    if (data->acceleration_data_ready)
-        log("Acc: [%6.3f, %6.3f, %6.3f] G, ", data->acceleration_data.X / 1000.0f, data->acceleration_data.Y / 1000.0f, data->acceleration_data.Z / 1000.0f); // Acceleration
-    if (data->rotation_data_ready)
-        log("Gyro: [%8.2f, %8.2f, %8.2f] DPS", data->rotation_data.X / 1000.0f, data->rotation_data.Y / 1000.0f, data->rotation_data.Z / 1000.0f); // Angular Velocity
+    log("Acc: [%6.3f, %6.3f, %6.3f] G, ", data->acceleration_data.X / 1000.0f, data->acceleration_data.Y / 1000.0f, data->acceleration_data.Z / 1000.0f); // Acceleration
+    log("Gyro: [%8.2f, %8.2f, %8.2f] DPS", data->rotation_data.X / 1000.0f, data->rotation_data.Y / 1000.0f, data->rotation_data.Z / 1000.0f); // Angular Velocity
     log("%s", "\n");
 
     last_sample_millis += delta_millis;
