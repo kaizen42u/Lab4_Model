@@ -75,7 +75,7 @@ void leftRotate(float *array, int array_size, int amount)
     // Step 2: Reverse the last (`array_size`-`amount`) elements
     std::reverse(array + amount, array + array_size);
 
-    // Step 3: Reverse the entire array (The order of steps doesn't matter)
+    // Step 3: Reverse the entire array
     std::reverse(array, array + array_size);
 }
 
