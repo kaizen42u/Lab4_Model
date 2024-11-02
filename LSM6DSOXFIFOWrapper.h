@@ -41,7 +41,6 @@ public:
 
     // Initialize and configure IMU with given parameters.
     // The sensor will be running under FIFO buffer mode.
-    //! Blocks if the sensor can not be initialize.
     int initialize(void);
 
     // Update sensor data

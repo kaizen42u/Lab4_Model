@@ -1,38 +1,34 @@
-#include "LSM6DSOXFIFOWrapper.h"
+#include "LSM6DSOXFIFOWrapper.h" // Include the header file for LSM6DSOX FIFO wrapper
 
 LSM6DSOXFIFO::LSM6DSOXFIFO(TwoWire &wire, uint8_t address)
-    : lsm6dsoxSensor(&wire, address)
+    : lsm6dsoxSensor(&wire, address) // Constructor initializes the sensor with the I2C wire and address
 {
-    logCallback = nullptr;
-    dataReadyCallback = nullptr;
+    logCallback = nullptr;       // Initialize the log callback as nullptr
+    dataReadyCallback = nullptr; // Initialize the data ready callback as nullptr
 }
 
 int LSM6DSOXFIFO::initialize(void)
 {
-    // Initialize sensors
+    // Begin communication with the sensor
     lsm6dsoxSensor.begin();
-    if (lsm6dsoxSensor.Enable_G() == LSM6DSOX_OK && lsm6dsoxSensor.Enable_X() == LSM6DSOX_OK)
-    {
-        this->sendLog("Success in enabling accelerometer and gyroscope\n");
-    }
-    else
+
+    // Enable gyroscope and accelerometer
+    if (lsm6dsoxSensor.Enable_G() == LSM6DSOX_OK && lsm6dsoxSensor.Enable_X() != LSM6DSOX_OK)
     {
         this->sendLog("Error in enabling accelerometer and gyroscope\n");
-        return false;
+        return false; // Return failure
     }
+    this->sendLog("Success in enabling accelerometer and gyroscope\n");
 
-    // Check device id
+    // Read and check device ID to ensure correct sensor is connected
     uint8_t device_id;
     lsm6dsoxSensor.ReadID(&device_id);
     if (device_id != LSM6DSOX_ID)
     {
-        this->sendLog("Wrong ID for LSM6DSOX sensor. Check device is plugged\n");
-        return false;
+        this->sendLog("Wrong ID (Read:%#02x Expect:%#02x) for LSM6DSOX sensor. Check device is plugged\n", device_id, LSM6DSOX_ID);
+        return false; // Return failure
     }
-    else
-    {
-        this->sendLog("Success checking ID for LSM6DSOX sensor\n");
-    }
+    this->sendLog("Success checking ID for LSM6DSOX sensor\n");
 
     // Set accelerometer scale. Available values are: 2, 4, 8, 16 G
     lsm6dsoxSensor.Set_X_FS(IMU_ACCELEROMETER_SCALE);
@@ -58,24 +54,25 @@ int LSM6DSOXFIFO::initialize(void)
     lsm6dsoxSensor.Set_FIFO_Mode(LSM6DSOX_BYPASS_MODE); // Flush any previous value in FIFO before start
     lsm6dsoxSensor.Set_FIFO_Mode(LSM6DSOX_STREAM_MODE); // Start batching in continuous mode
 
-    // Set FIFO watermark level. Can be used to check when the number of samples in buffer reaches this defined threshold level.
+    // Set FIFO watermark level to trigger when the defined threshold is reached
     lsm6dsoxSensor.Set_FIFO_Watermark_Level(IMU_FIFO_WATERMARK_LEVEL);
 
-    return true;
+    return true; // Return success
 }
 
 void LSM6DSOXFIFO::update(void)
 {
-    // Check if FIFO threshold level was reached.
+    // Check if the FIFO threshold level has been reached
     uint8_t fifo_watermark_threshold_reached = 0; // FIFO watermark status
     lsm6dsoxSensor.Get_FIFO_Watermark_Status(&fifo_watermark_threshold_reached);
 
+    // Process data while the FIFO threshold level is reached
     while (fifo_watermark_threshold_reached)
     {
         // Fetch data from FIFO
         for (uint16_t i = 0; i < IMU_FIFO_WATERMARK_LEVEL; i++)
-            readFIFObuffer();
-        lsm6dsoxSensor.Get_FIFO_Watermark_Status(&fifo_watermark_threshold_reached);
+            readFIFObuffer();                                                        // Read data from FIFO
+        lsm6dsoxSensor.Get_FIFO_Watermark_Status(&fifo_watermark_threshold_reached); // Update FIFO watermark status
     }
 
     // Check if FIFO is full.
@@ -122,58 +119,61 @@ int LSM6DSOXFIFO::readFIFObuffer(void)
         break;
     }
 
+    // If data is ready and callback is set, call the callback function
     if (isDataReady() && dataReadyCallback)
     {
         dataReadyCallback(&data);
         data.flags = false;
     }
 
-    return ret_val;
+    return ret_val; // Return the tag value
 }
 
 void LSM6DSOXFIFO::print(imu_data_t *data) const
 {
-    if (data == NULL)
+    if (data == NULL) // Return if data is null
         return;
 
-    this->sendLog("[IMU] [%11ld ms], ", millis());
+    this->sendLog("[IMU] [%11ld ms], ", millis()); // Log timestamp
     if (data->acceleration_data_ready)
-        this->sendLog("Acc: [%6.3f, %6.3f, %6.3f] G, ", data->acceleration_data.X / 1000.0f, data->acceleration_data.Y / 1000.0f, data->acceleration_data.Z / 1000.0f); // Acceleration
+        this->sendLog("Acc: [%6.3f, %6.3f, %6.3f] G, ", data->acceleration_data.X / 1000.0f, data->acceleration_data.Y / 1000.0f, data->acceleration_data.Z / 1000.0f); // Log acceleration data
     if (data->rotation_data_ready)
-        this->sendLog("Gyro: [%8.2f, %8.2f, %8.2f] DPS", data->rotation_data.X / 1000.0f, data->rotation_data.Y / 1000.0f, data->rotation_data.Z / 1000.0f); // Angular Velocity
-    this->sendLog("%s", "\n");
+        this->sendLog("Gyro: [%8.2f, %8.2f, %8.2f] DPS", data->rotation_data.X / 1000.0f, data->rotation_data.Y / 1000.0f, data->rotation_data.Z / 1000.0f); // Log gyroscope data
+    this->sendLog("%s", "\n");                                                                                                                               // New line in log
 }
 
 void LSM6DSOXFIFO::registerLoggingCallback(const log_callback_t callback)
 {
-    logCallback = callback;
+    logCallback = callback; // Register logging callback function
 }
 
 void LSM6DSOXFIFO::registerDataReadyCallback(const data_ready_callback_t callback)
 {
-    dataReadyCallback = callback;
+    dataReadyCallback = callback; // Register data ready callback function
 }
 
 int32_t *LSM6DSOXFIFO::vector3intSerialize(vector3int_t *vector) const
 {
-    return reinterpret_cast<int32_t *>(vector);
+    return reinterpret_cast<int32_t *>(vector); // Serialize vector data
 }
 
 int LSM6DSOXFIFO::sendLog(const char *format, ...) const
 {
     if (!logCallback)
-        return 0;
-    char buffer[128];
+        return 0; // Return if log callback is not set
+
+    char buffer[128]; // Buffer for formatted log message
     int ret_val;
     va_list va;
     va_start(va, format);
-    ret_val = vsnprintf(buffer, sizeof(buffer), format, va);
+    ret_val = vsnprintf(buffer, sizeof(buffer), format, va); // Format log message
     va_end(va);
-    logCallback(buffer);
-    return ret_val;
+    logCallback(buffer); // Call the log callback with the formatted message
+    return ret_val;      // Return the formatted message length
 }
 
 bool LSM6DSOXFIFO::isDataReady(void)
 {
+    // Check if both acceleration and rotation data are ready
     return (data.acceleration_data_ready && data.rotation_data_ready);
 }

@@ -1,5 +1,5 @@
 {
-    "port": "COM8",
+    "port": "COM3",
     "board": "arduino:mbed_nano:nanorp2040connect",
     "output": "../build",
     "intelliSenseGen": "global",
